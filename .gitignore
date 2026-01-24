@@ -1,0 +1,11 @@
+
+node_modules
+.env
+.env.local
+.DS_Store
+dist
+coverage
+frontend/docs/personal-notes.md
+frontend/docs/llms.txt
+all_untracked.txt
+tracked_files.txt

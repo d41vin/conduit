@@ -3,63 +3,39 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import "../src/ConditionalPayment.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-
-/**
- * @title MockUSDC
- * @notice Simple mock USDC for testing (6 decimals like real USDC)
- */
-contract MockUSDC is ERC20 {
-    constructor() ERC20("USD Coin", "USDC") {}
-
-    function decimals() public pure override returns (uint8) {
-        return 6;
-    }
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
-}
 
 /**
  * @title ConditionalPaymentTest
  * @notice Tests for the core happy path: create → accept → submit → verify → release
+ * using Native Currency (Arc/USDC)
  */
 contract ConditionalPaymentTest is Test {
     ConditionalPayment public escrow;
-    MockUSDC public usdc;
 
     address public principal = makeAddr("principal");
     address public worker = makeAddr("worker");
     address public verifier = makeAddr("verifier");
 
-    uint256 constant AMOUNT = 100 * 1e6; // 100 USDC
+    uint256 constant AMOUNT = 100 * 1e18; // 100 Native Token (assuming 18 decimals usually, but if USDC is native it might be 6 or 18. Treating as unit)
     bytes32 constant CONDITION_HASH = keccak256("Deliver a working website");
     bytes32 constant PROOF_HASH = keccak256("Here is the proof of completion");
 
     function setUp() public {
-        // Deploy mock USDC
-        usdc = new MockUSDC();
+        // Deploy escrow contract (no constructor args)
+        escrow = new ConditionalPayment();
 
-        // Deploy escrow contract
-        escrow = new ConditionalPayment(address(usdc));
-
-        // Fund principal with USDC
-        usdc.mint(principal, AMOUNT * 10);
-
-        // Principal approves escrow
-        vm.prank(principal);
-        usdc.approve(address(escrow), type(uint256).max);
+        // Fund principal with Native Token
+        vm.deal(principal, 1000 * 1e18);
     }
 
     // ============ Happy Path Tests ============
 
     function test_CreatePayment() public {
         uint256 deadline = block.timestamp + 7 days;
+        uint256 principalBalanceBefore = principal.balance;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -81,17 +57,16 @@ contract ConditionalPaymentTest is Test {
         );
         assertEq(payment.deadline, deadline);
 
-        // Verify USDC transferred to escrow
-        assertEq(usdc.balanceOf(address(escrow)), AMOUNT);
-        assertEq(usdc.balanceOf(principal), AMOUNT * 10 - AMOUNT);
+        // Verify Funds transferred to escrow
+        assertEq(address(escrow).balance, AMOUNT);
+        assertEq(principal.balance, principalBalanceBefore - AMOUNT);
     }
 
     function test_AcceptPayment() public {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -114,8 +89,7 @@ contract ConditionalPaymentTest is Test {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -138,11 +112,10 @@ contract ConditionalPaymentTest is Test {
 
     function test_VerifyAndRelease() public {
         uint256 deadline = block.timestamp + 7 days;
-        uint256 workerBalanceBefore = usdc.balanceOf(worker);
+        uint256 workerBalanceBefore = worker.balance;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -166,17 +139,16 @@ contract ConditionalPaymentTest is Test {
             uint256(ConditionalPayment.PaymentStatus.Released)
         );
 
-        // Verify USDC transferred to worker
-        assertEq(usdc.balanceOf(worker), workerBalanceBefore + AMOUNT);
-        assertEq(usdc.balanceOf(address(escrow)), 0);
+        // Verify Funds transferred to worker
+        assertEq(worker.balance, workerBalanceBefore + AMOUNT);
+        assertEq(address(escrow).balance, 0);
     }
 
     function test_VerifyReject_AllowsResubmit() public {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -215,17 +187,16 @@ contract ConditionalPaymentTest is Test {
 
     function test_CancelPayment() public {
         uint256 deadline = block.timestamp + 7 days;
-        uint256 principalBalanceBefore = usdc.balanceOf(principal);
+        uint256 principalBalanceBefore = principal.balance;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
         );
 
-        assertEq(usdc.balanceOf(principal), principalBalanceBefore - AMOUNT);
+        assertEq(principal.balance, principalBalanceBefore - AMOUNT);
 
         vm.prank(principal);
         escrow.cancelPayment(paymentId);
@@ -239,16 +210,15 @@ contract ConditionalPaymentTest is Test {
         );
 
         // Principal gets refund
-        assertEq(usdc.balanceOf(principal), principalBalanceBefore);
+        assertEq(principal.balance, principalBalanceBefore);
     }
 
     function test_RefundOnTimeout() public {
         uint256 deadline = block.timestamp + 7 days;
-        uint256 principalBalanceBefore = usdc.balanceOf(principal);
+        uint256 principalBalanceBefore = principal.balance;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -272,7 +242,7 @@ contract ConditionalPaymentTest is Test {
         );
 
         // Principal gets refund
-        assertEq(usdc.balanceOf(principal), principalBalanceBefore);
+        assertEq(principal.balance, principalBalanceBefore);
     }
 
     // ============ Access Control Tests ============
@@ -281,8 +251,7 @@ contract ConditionalPaymentTest is Test {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -302,8 +271,7 @@ contract ConditionalPaymentTest is Test {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -326,8 +294,7 @@ contract ConditionalPaymentTest is Test {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -345,8 +312,7 @@ contract ConditionalPaymentTest is Test {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -364,8 +330,7 @@ contract ConditionalPaymentTest is Test {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -379,8 +344,7 @@ contract ConditionalPaymentTest is Test {
         uint256 deadline = block.timestamp + 7 days;
 
         vm.prank(principal);
-        uint256 paymentId = escrow.createPayment(
-            AMOUNT,
+        uint256 paymentId = escrow.createPayment{value: AMOUNT}(
             CONDITION_HASH,
             verifier,
             deadline
@@ -399,7 +363,10 @@ contract ConditionalPaymentTest is Test {
 
         vm.prank(principal);
         vm.expectRevert(ConditionalPayment.InvalidAmount.selector);
-        escrow.createPayment(0, CONDITION_HASH, verifier, deadline);
+        // Using low-level call to check revert for 0 value, but createPayment checks msg.value
+        // But solidity compiler might handle it?
+        // Actually, createPayment checks `if (msg.value == 0) revert InvalidAmount();`
+        escrow.createPayment{value: 0}(CONDITION_HASH, verifier, deadline);
     }
 
     function test_RevertWhen_PastDeadline() public {
@@ -407,7 +374,11 @@ contract ConditionalPaymentTest is Test {
 
         vm.prank(principal);
         vm.expectRevert(ConditionalPayment.InvalidDeadline.selector);
-        escrow.createPayment(AMOUNT, CONDITION_HASH, verifier, pastDeadline);
+        escrow.createPayment{value: AMOUNT}(
+            CONDITION_HASH,
+            verifier,
+            pastDeadline
+        );
     }
 
     function test_RevertWhen_ZeroVerifier() public {
@@ -415,6 +386,10 @@ contract ConditionalPaymentTest is Test {
 
         vm.prank(principal);
         vm.expectRevert(ConditionalPayment.InvalidAddress.selector);
-        escrow.createPayment(AMOUNT, CONDITION_HASH, address(0), deadline);
+        escrow.createPayment{value: AMOUNT}(
+            CONDITION_HASH,
+            address(0),
+            deadline
+        );
     }
 }

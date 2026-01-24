@@ -8,13 +8,25 @@
  * @module
  */
 
+import type * as payments from "../payments.js";
+import type * as payments_custom from "../payments_custom.js";
+import type * as proofs from "../proofs.js";
+import type * as users from "../users.js";
+import type * as verifications from "../verifications.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  payments: typeof payments;
+  payments_custom: typeof payments_custom;
+  proofs: typeof proofs;
+  users: typeof users;
+  verifications: typeof verifications;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.

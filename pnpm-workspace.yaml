@@ -1,5 +1,7 @@
 packages:
-  - .
+  - "frontend"
+  - "sdk"
+  - "agent-service"
 
 ignoredBuiltDependencies:
   - sharp

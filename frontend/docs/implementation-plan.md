@@ -20,7 +20,6 @@
 
 **0.1 Repository Organization**
 - [ ] Create `sdk/` directory at root level
-- [ ] Create `convex/` directory at root level
 - [ ] Ensure `frontend/docs/` has `available-env.md` and `dev-circle-llms.txt`
 - [ ] Create `.env.local.example` files for each workspace
 
